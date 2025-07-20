@@ -1,0 +1,102 @@
+//@version=6
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © iDrag0xxx
+
+indicator("Inspired by GainzAlgo V2 [Alpha]", overlay=true)
+
+// Input Parameters
+emaFastLength = input.int(9, "Fast EMA Length", minval=1, step=1)
+emaSlowLength = input.int(21, "Slow EMA Length", minval=1, step=1)
+rsiLength = input.int(14, "RSI Length", minval=1, step=1)
+rsiOverbought = input.float(70, "RSI Overbought", minval=0, maxval=100, step=1)
+rsiOversold = input.float(30, "RSI Oversold", minval=0, maxval=100, step=1)
+atrLength = input.int(14, "ATR Length", minval=1, step=1)
+riskRewardRatio = input.float(2.0, "Risk-Reward Ratio", minval=0.5, step=0.1)
+atrMultiplierSL = input.float(1.5, "ATR Multiplier for SL", minval=0.1, step=0.1)
+disableRepeatingSignals = input.bool(true, "Disable Repeating Signals")
+showTpSlLabels = input.bool(true, "Show TP/SL Labels")
+labelStyle = input.string("Label", "Label Style", options=["Label", "Triangle", "Circle"])
+
+// Input Validation
+if emaFastLength >= emaSlowLength
+    runtime.error("Fast EMA Length must be less than Slow EMA Length")
+if riskRewardRatio < 0.5
+    runtime.error("Risk-Reward Ratio must be at least 0.5")
+if atrMultiplierSL <= 0
+    runtime.error("ATR Multiplier for SL must be positive")
+
+// Calculate Indicators
+emaFast = ta.ema(close, emaFastLength)
+emaSlow = ta.ema(close, emaSlowLength)
+rsi = ta.rsi(close, rsiLength)
+atr = ta.atr(atrLength)
+
+// Trend Detection: Fast EMA > Slow EMA for bullish, opposite for bearish
+trendUp = emaFast > emaSlow
+trendDown = emaFast < emaSlow
+
+// Momentum: RSI above oversold for buy, below overbought for sell
+momentumUp = rsi > rsiOversold
+momentumDown = rsi < rsiOverbought
+
+// Candlestick Patterns: Bullish/Bearish Engulfing
+bullishEngulfing = close[1] < open[1] and close > open and close > open[1] and open < close[1]
+bearishEngulfing = close[1] > open[1] and close < open and close < open[1] and open > close[1]
+
+// Additional Signal Filtering: Confirm trend with price above/below EMA
+priceAboveEma = close > emaSlow
+priceBelowEma = close < emaSlow
+
+// Signal Logic
+buySignal = trendUp and momentumUp and bullishEngulfing and priceAboveEma
+sellSignal = trendDown and momentumDown and bearishEngulfing and priceBelowEma
+
+// Prevent Repeating Signals
+var lastSignal = 0  // 0: No signal, 1: Buy, -1: Sell
+buySignal := disableRepeatingSignals ? (buySignal and lastSignal != 1) : buySignal
+sellSignal := disableRepeatingSignals ? (sellSignal and lastSignal != -1) : sellSignal
+lastSignal := buySignal ? 1 : sellSignal ? -1 : lastSignal
+
+// TP/SL Calculations
+slDistance = atr * atrMultiplierSL
+tpDistance = slDistance * riskRewardRatio
+buySL = buySignal ? close - slDistance : na
+buyTP = buySignal ? close + tpDistance : na
+sellSL = sellSignal ? close + slDistance : na
+sellTP = sellSignal ? close - tpDistance : na
+
+// Plotting
+plot(emaFast, color=color.blue, title="Fast EMA")
+plot(emaSlow, color=color.red, title="Slow EMA")
+
+// Plot Signals
+plotshape(buySignal, style=labelStyle == "Triangle" ? shape.triangleup : labelStyle == "Circle" ? shape.circle : shape.labelup, 
+          location=location.belowbar, color=color.green, size=size.tiny, title="Buy Signal")
+plotshape(sellSignal, style=labelStyle == "Triangle" ? shape.triangledown : labelStyle == "Circle" ? shape.circle : shape.labeldown, 
+          location=location.abovebar, color=color.red, size=size.tiny, title="Sell Signal")
+
+// Plot TP/SL Levels with Validation
+plot(not na(buySL) ? buySL : na, color=color.red, style=plot.style_crosses, linewidth=1, title="Buy Stop Loss")
+plot(not na(buyTP) ? buyTP : na, color=color.green, style=plot.style_crosses, linewidth=1, title="Buy Take Profit")
+plot(not na(sellSL) ? sellSL : na, color=color.red, style=plot.style_crosses, linewidth=1, title="Sell Stop Loss")
+plot(not na(sellTP) ? sellTP : na, color=color.green, style=plot.style_crosses, linewidth=1, title="Sell Take Profit")
+
+// Labels for Signals
+if buySignal
+    label.new(bar_index, low, "BUY", color=color.green, style=labelStyle == "Label" ? label.style_label_up : label.style_none, 
+              textcolor=color.white, size=size.normal)
+if sellSignal
+    label.new(bar_index, high, "SELL", color=color.red, style=labelStyle == "Label" ? label.style_label_down : label.style_none, 
+              textcolor=color.white, size=size.normal)
+
+// TP/SL Labels
+if showTpSlLabels and buySignal and not na(buySL) and not na(buyTP)
+    label.new(bar_index, buySL, "SL", color=color.red, style=label.style_label_up, textcolor=color.white, size=size.tiny)
+    label.new(bar_index, buyTP, "TP", color=color.green, style=label.style_label_down, textcolor=color.white, size=size.tiny)
+if showTpSlLabels and sellSignal and not na(sellSL) and not na(sellTP)
+    label.new(bar_index, sellSL, "SL", color=color.red, style=label.style_label_down, textcolor=color.white, size=size.tiny)
+    label.new(bar_index, sellTP, "TP", color=color.green, style=label.style_label_up, textcolor=color.white, size=size.tiny)
+
+// Alerts
+alertcondition(buySignal, title="Buy Signal", message="Inspired by GainzAlgo V2 [Alpha]: Buy Signal Detected")
+alertcondition(sellSignal, title="Sell Signal", message="Inspired by GainzAlgo V2 [Alpha]: Sell Signal Detected")
